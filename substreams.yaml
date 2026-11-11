@@ -1,0 +1,29 @@
+specVersion: v0.1.0
+package:
+  name: solana_transfers
+  version: v0.1.0
+
+protobuf:
+  files:
+    - transfers.proto
+  importPaths:
+    - ./proto
+  excludePaths:
+    - sf/substreams
+    - google
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/solana_transfers.wasm
+
+network: solana
+
+modules:
+  - name: map_transfers
+    kind: map
+    initialBlock: 385870151
+    inputs:
+      - source: sf.solana.type.v1.Block
+    output:
+      type: proto:transfers.v1.Transfers

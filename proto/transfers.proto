@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package transfers.v1;
+
+message Transfers {
+  repeated Transfer transfers = 1;
+}
+
+message Transfer {
+  string from = 1;
+  string to = 2;
+  // double (not uint64) so ProtoJSON renders a bare integer: uint64 is
+  // rendered as a quoted string. Exact for amounts up to 2^53.
+  double amount = 3;
+}
