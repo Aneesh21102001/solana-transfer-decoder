@@ -1,52 +1,69 @@
-# Solana Transfer Extraction — Substreams
+# Solana Transfer Decoder
 
-Extracts transfers from Solana blocks **385870151–385870156** and outputs one JSON object per transfer:
+Rust + Substreams project that extracts Solana transfer activity from mainnet blocks and exports the results as JSONL.
+
+## What it does
+
+This decoder processes blocks `385870151` through `385870156` and captures:
+- native SOL transfers via the System Program
+- SPL Token transfers
+- Token-2022 transfers
+- top-level and inner/CPI instructions
+- account resolution through address lookup tables
+
+The included run produced `3,974` transfer events in `transfers.jsonl`.
+
+## Output format
+
+Each line in `transfers.jsonl` is a single JSON object like this:
 
 ```json
 {"from": "8ryouP8NbMv2EKL9V5xiAq5EEt5hKwnT9DDZHjqgTTWR", "to": "DduRAGKHQ5AN1BR3HGUW7ymL8MrTao7sQwZyoYCeSU69", "amount": 2829556537}
 ```
 
-Result of the run: **3,974 transfers**, see `transfers.jsonl`.
+## Project files
 
-## Files
-| File | Purpose |
-|---|---|
-| `solana-transfers-v0.1.0.spkg` | The built Substreams package |
-| `substreams.yaml` | Manifest (module `map_transfers`, input `sf.solana.type.v1.Block`) |
-| `proto/transfers.proto` | Output schema (`Transfers { repeated Transfer }`) |
-| `src/lib.rs` | Rust map module |
-| `src/pb.rs` | prost bindings for the proto (hand-written, so no `protoc` needed) |
-| `run.ps1` | Streams the block range and flattens output to one JSON line per transfer |
-| `transfers.jsonl` | Output from the run |
+- `src/lib.rs` - Rust map module that decodes transfers
+- `src/pb.rs` - hand-written Prost bindings for the protobuf schema
+- `proto/transfers.proto` - output schema
+- `substreams.yaml` - Substreams manifest
+- `run.ps1` - runs the decoder and flattens output to JSONL
+- `transfers.jsonl` - output generated from the block range above
+- `solana-transfers-v0.1.0.spkg` - packaged Substreams artifact
 
 ## How it works
-`map_transfers` walks every instruction (top-level **and** inner/CPI) of every successful transaction, with account indexes resolved (including address lookup tables), and decodes:
 
-| Program | Instruction | from / to accounts | amount |
+`map_transfers` walks every instruction in each successful transaction and decodes:
+
+| Program | Instruction | Accounts used | Amount source |
 |---|---|---|---|
-| System (`1111…1111`) | `Transfer` (2) | 0 → 1 | lamports, u64 LE at bytes 4..12 |
-| System | `TransferWithSeed` (11) | 0 → 2 | lamports |
-| SPL Token / Token-2022 | `Transfer` (3) | 0 → 1 | raw units, u64 LE at bytes 1..9 |
-| SPL Token / Token-2022 | `TransferChecked` (12) | 0 → 2 | raw units |
+| System Program | `Transfer` | 0 -> 1 | lamports at bytes 4..12 |
+| System Program | `TransferWithSeed` | 0 -> 2 | lamports at bytes 4..12 |
+| SPL Token / Token-2022 | `Transfer` | 0 -> 1 | token amount at bytes 1..9 |
+| SPL Token / Token-2022 | `TransferChecked` | 0 -> 2 | token amount at bytes 1..9 |
 
-Addresses are base58-encoded.
+Addresses are written as base58 strings.
 
-## Design notes
-- **`amount` is a `double` in the proto.** ProtoJSON renders `uint64` as a quoted string (`"325253"`), but the required format is a bare integer. A double renders as `325253` and is exact up to 2^53.
-- For SPL token transfers, `from`/`to` are **token accounts** (what the instruction references), not owner wallets.
-- Uses `substreams` 0.6 / `substreams-solana` 0.14 / `prost` 0.13. The newer 0.8/0.17 crates switched to a new protobuf stack (`buffa`).
+## Notes
 
-## Build & run (Windows)
-Prerequisites: Rust with the `wasm32-unknown-unknown` target, and the Substreams CLI. There's no Windows release binary, so the CLI was built from source with Go: `go build ./cmd/substreams` in the substreams repo.
+- For SPL token transfers, `from` and `to` are token accounts, not wallet owners.
+- `amount` is stored as `double` in the proto so JSON output keeps a bare integer instead of a quoted string.
+
+## Build and run
+
+Requirements:
+- Rust with the `wasm32-unknown-unknown` target
+- Substreams CLI
 
 ```powershell
 cargo build --target wasm32-unknown-unknown --release
 substreams pack substreams.yaml
-$env:SUBSTREAMS_API_KEY = "<key from https://thegraph.market>"
+$env:SUBSTREAMS_API_KEY = "<your key>"
 .\run.ps1
 ```
 
-Or run it directly. The stop block is exclusive:
-```
+To run directly:
+
+```powershell
 substreams run solana-transfers-v0.1.0.spkg map_transfers -e mainnet.sol.streamingfast.io:443 -s 385870151 -t 385870157 -o jsonl
 ```
